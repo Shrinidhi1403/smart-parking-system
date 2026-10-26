@@ -1,15 +1,22 @@
 package com.essdl.smart_parking.controller;
 
-import com.essdl.smart_parking.model.Booking;
-import com.essdl.smart_parking.model.ParkingSpot;
+import com.essdl.smart_parking.dto.BookingRequestDTO;
+import com.essdl.smart_parking.dto.BookingResponseDTO;
+import com.essdl.smart_parking.dto.ParkingSpotDTO;
 import com.essdl.smart_parking.service.ParkingService;
+import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
-import java.util.Map;
 
+/**
+ * Controller layer: only HTTP concerns (paths, status codes, validation trigger).
+ * @Valid makes Spring run the Bean Validation annotations on the DTO BEFORE
+ * this method body executes; invalid input never reaches the service.
+ */
 @RestController
 @RequestMapping("/api/parking")
 public class ParkingController {
@@ -17,49 +24,40 @@ public class ParkingController {
     @Autowired
     private ParkingService parkingService;
 
-    // 1. Saare slots dekhna
+    // GET /api/parking/spots  -> 200
     @GetMapping("/spots")
-    public List<ParkingSpot> getAllSpots() {
-        return parkingService.getAllSpots();
+    public ResponseEntity<List<ParkingSpotDTO>> getAllSpots() {
+        return ResponseEntity.ok(parkingService.getAllSpots());
     }
 
-    // 2. Sirf khali slots dekhna
+    // GET /api/parking/spots/available  -> 200
     @GetMapping("/spots/available")
-    public List<ParkingSpot> getAvailableSpots() {
-        return parkingService.getAvailableSpots();
+    public ResponseEntity<List<ParkingSpotDTO>> getAvailableSpots() {
+        return ResponseEntity.ok(parkingService.getAvailableSpots());
     }
 
-    // 3. Naya parking slot add karna
+    // POST /api/parking/spots  -> 201
     @PostMapping("/spots")
-    public ParkingSpot addSpot(@RequestBody ParkingSpot spot) {
-        return parkingService.addSpot(spot);
+    public ResponseEntity<ParkingSpotDTO> addSpot(@Valid @RequestBody ParkingSpotDTO request) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(parkingService.addSpot(request));
     }
 
-    // 4. Slot Reserve karna
-    @PostMapping("/reserve")
-    public ResponseEntity<?> reserveSpot(@RequestParam String vehicleNumber, @RequestParam String vehicleType) {
-        try {
-            Booking booking = parkingService.reserveSpot(vehicleNumber, vehicleType);
-            return ResponseEntity.ok(booking);
-        } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
-        }
+    // POST /api/parking/bookings  -> 201 (replaces the old /reserve?vehicleNumber=...)
+    @PostMapping("/bookings")
+    public ResponseEntity<BookingResponseDTO> createBooking(@Valid @RequestBody BookingRequestDTO request) {
+        BookingResponseDTO response = parkingService.reserveSpot(request);
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
-    // 5. Vehicle Checkout / Slot Release karna
+    // POST /api/parking/release/{bookingId}  -> 200
     @PostMapping("/release/{bookingId}")
-    public ResponseEntity<?> releaseSpot(@PathVariable Long bookingId) {
-        try {
-            Booking booking = parkingService.releaseSpot(bookingId);
-            return ResponseEntity.ok(booking);
-        } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
-        }
+    public ResponseEntity<BookingResponseDTO> releaseSpot(@PathVariable Long bookingId) {
+        return ResponseEntity.ok(parkingService.releaseSpot(bookingId));
     }
 
-    // 6. Booking History dekhna
+    // GET /api/parking/bookings  -> 200
     @GetMapping("/bookings")
-    public List<Booking> getAllBookings() {
-        return parkingService.getAllBookings();
+    public ResponseEntity<List<BookingResponseDTO>> getAllBookings() {
+        return ResponseEntity.ok(parkingService.getAllBookings());
     }
 }
