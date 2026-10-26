@@ -1,5 +1,8 @@
 package com.essdl.smart_parking.service;
 
+import com.essdl.smart_parking.dto.BookingRequestDTO;
+import com.essdl.smart_parking.dto.BookingResponseDTO;
+import com.essdl.smart_parking.dto.ParkingSpotDTO;
 import com.essdl.smart_parking.model.Booking;
 import com.essdl.smart_parking.model.ParkingSpot;
 import com.essdl.smart_parking.repository.BookingRepository;
@@ -11,17 +14,11 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
 
-  /*
-        Service Layer!! => (full backend logic ismein)
-        Controller sirf request leta hai aur Repository sirf DB mein save karta hai. Par beech ka saara dimaag—jaise:
-
-        "Kya slot khali hai?",
-        "Agar khali hai toh usko occupied mark karo",
-         "Gadi kitni der ruki aur uska kitna bill bana?"
-
-         ye sab Service Layer mein likha jata hai.
-     */
-
+/**
+ * Service layer: business logic. From Milestone 1 it works with DTOs on the
+ * outside, so the Controller never sees (or leaks) JPA entities.
+ * NOTE: errors are still plain RuntimeExceptions here - Milestone 2 replaces them.
+ */
 @Service
 public class ParkingService {
 
@@ -31,53 +28,54 @@ public class ParkingService {
     @Autowired
     private BookingRepository bookingRepository;
 
-    // 1. Saare slots dekhna
-    public List<ParkingSpot> getAllSpots() {
-        return spotRepository.findAll();
+    // 1. All spots
+    public List<ParkingSpotDTO> getAllSpots() {
+        return spotRepository.findAll().stream()
+                .map(this::toSpotDTO)
+                .toList();
     }
 
-    // 2. Sirf Available (Khali) slots dekhna
-    public List<ParkingSpot> getAvailableSpots() {
-        return spotRepository.findByIsOccupiedFalse();
+    // 2. Only free spots
+    public List<ParkingSpotDTO> getAvailableSpots() {
+        return spotRepository.findByIsOccupiedFalse().stream()
+                .map(this::toSpotDTO)
+                .toList();
     }
 
-    // 3. Naya Parking Spot add karna
-    public ParkingSpot addSpot(ParkingSpot spot) {
-        spot.setOccupied(false);
-        return spotRepository.save(spot);
+    // 3. Add a new spot (a new spot is always free)
+    public ParkingSpotDTO addSpot(ParkingSpotDTO request) {
+        ParkingSpot spot = new ParkingSpot(
+                request.getSpotNumber().trim().toUpperCase(),
+                request.getVehicleType().trim().toUpperCase(),
+                false);
+        return toSpotDTO(spotRepository.save(spot));
     }
 
-    // 4. Slot Reserve / Book karna
-    public Booking reserveSpot(String vehicleNumber, String vehicleType) {
-        // Step A: Check karo us vehicle type (CAR/BIKE) ke liye koi slot khali hai kya
-        List<ParkingSpot> availableSpots = spotRepository
-                .findByVehicleTypeIgnoreCaseAndIsOccupiedFalse(vehicleType);
+    // 4. Book a specific spot by ID
+    public BookingResponseDTO reserveSpot(BookingRequestDTO request) {
+        ParkingSpot spot = spotRepository.findById(request.getSpotId())
+                .orElseThrow(() -> new RuntimeException(
+                        "Parking spot with ID " + request.getSpotId() + " not found!"));
 
-        // Exception Handling (Module-I): Agar khali nahi hai toh error feko
-        if (availableSpots.isEmpty()) {
-            throw new RuntimeException("No free parking spot available for: " + vehicleType);
+        if (spot.isOccupied()) {
+            throw new RuntimeException("Spot " + spot.getSpotNumber() + " is already booked!");
         }
 
-        // Step B: List mein se pehla khali slot (index 0) uthao aur usko Occupied (true) kar do
-        ParkingSpot allocatedSpot = availableSpots.get(0);
-        allocatedSpot.setOccupied(true);
-        spotRepository.save(allocatedSpot); // DB mein update ho gaya
+        spot.setOccupied(true);
+        spotRepository.save(spot);
 
-        // Step C: Ab nayi Booking slip banao aur DB mein save karo
         Booking booking = new Booking();
-        booking.setVehicleNumber(vehicleNumber.toUpperCase());
-        booking.setSpot(allocatedSpot);
-        booking.setEntryTime(LocalDateTime.now()); // Abhi ka exact system time
+        booking.setVehicleNumber(request.getVehicleNumber().toUpperCase());
+        booking.setSpot(spot);
+        booking.setEntryTime(LocalDateTime.now());
         booking.setTotalFee(0.0);
         booking.setStatus("ACTIVE");
 
-        return bookingRepository.save(booking);
+        return toBookingDTO(bookingRepository.save(booking));
     }
 
-    // 5. Vehicle Checkout / Slot Release karna aur Bill banana
-    public Booking releaseSpot(Long bookingId) {
-
-        // Step A: Booking ID se booking dhoondo, nahi mili toh exception feko
+    // 5. Checkout: free the spot and calculate the bill
+    public BookingResponseDTO releaseSpot(Long bookingId) {
         Booking booking = bookingRepository.findById(bookingId)
                 .orElseThrow(() -> new RuntimeException("Booking ID " + bookingId + " not found!"));
 
@@ -85,40 +83,48 @@ public class ParkingService {
             throw new RuntimeException("This vehicle has already checked out!");
         }
 
-        // Step B: Jis spot par gadi khadi thi, usko wapas Free (false) kar do
         ParkingSpot spot = booking.getSpot();
         spot.setOccupied(false);
         spotRepository.save(spot);
 
-        // Step C: Exit time note karo aur Status COMPLETED karo
         booking.setExitTime(LocalDateTime.now());
         booking.setStatus("COMPLETED");
 
-        // Step D: Fee Calculation Logic
         long minutesParked = Duration.between(booking.getEntryTime(), booking.getExitTime()).toMinutes();
-        long hoursCharged = Math.max(1, (minutesParked + 59) / 60); // Minimum 1 ghante ka charge lagega
+        long hoursCharged = Math.max(1, (minutesParked + 59) / 60); // minimum 1 hour
 
         double hourlyRate = spot.getVehicleType().equalsIgnoreCase("CAR") ? 50.0 : 20.0;
         booking.setTotalFee(hoursCharged * hourlyRate);
 
-        return bookingRepository.save(booking);
+        return toBookingDTO(bookingRepository.save(booking));
     }
 
-    // 6. Saari Bookings ka record dekhna
-    public List<Booking> getAllBookings() {
-        return bookingRepository.findAll();
+    // 6. Booking history
+    public List<BookingResponseDTO> getAllBookings() {
+        return bookingRepository.findAll().stream()
+                .map(this::toBookingDTO)
+                .toList();
     }
 
-    /*
-        @Service: Ye annotation Spring ko batata hai ki is class ka ek Bean (Object) bana kar apne IoC container mein rakh lo, kyunki isme humara business logic hai.
+    // ---------- Entity -> DTO mapping ----------
 
-          @Autowired (Dependency Injection): Dekh humne kahin bhi spotRepository = new ParkingSpotRepository() nahi likha! @Autowired likhte hi Spring ne apna banaya hua Repository Bean yahan connect (inject) kar diya.
+    private ParkingSpotDTO toSpotDTO(ParkingSpot spot) {
+        return new ParkingSpotDTO(
+                spot.getId(),
+                spot.getSpotNumber(),
+                spot.getVehicleType(),
+                spot.isOccupied());
+    }
 
-           Lambda Expression () -> new RuntimeException(...):
-
-           Ye orElseThrow ke andar humne Java 8 ka Lambda Expression use kiya hai (jo tere Module-II syllabus mein hai)!
-
-            Java 8 aur Collections => DONO USE KIYA HAIN!!!!!
-     */
+    private BookingResponseDTO toBookingDTO(Booking booking) {
+        return new BookingResponseDTO(
+                booking.getId(),
+                booking.getSpot().getId(),
+                booking.getSpot().getSpotNumber(),
+                booking.getVehicleNumber(),
+                booking.getEntryTime(),
+                booking.getExitTime(),
+                booking.getTotalFee(),
+                booking.getStatus());
+    }
 }
-
