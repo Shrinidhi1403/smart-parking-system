@@ -21,7 +21,7 @@ Modern urban facilities frequently struggle with manual parking assignments, tra
 ---
 
 ## 🏗️ Architecture & Design
-The system strictly enforces standard enterprise **Layered Architecture** principles, maintaining clean separation of concerns:
+The system strictly enforces standard enterprise **Layered Architecture** principles, maintaining clean separation of concerns.
 
 ```text
 [ Client / Postman / Frontend ]
