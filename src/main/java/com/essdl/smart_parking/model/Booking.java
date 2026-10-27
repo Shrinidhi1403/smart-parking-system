@@ -25,12 +25,12 @@ public class Booking {
     private LocalDateTime entryTime;
     private LocalDateTime exitTime;
     private double totalFee;
-    private String status; // "ACTIVE" ya "COMPLETED"
+    private String status; // "Occupied" OR "Empty"
 
     public Booking() {
     }
 
-    // Getters and Setters
+    // Getters and Setters-methods
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
 
