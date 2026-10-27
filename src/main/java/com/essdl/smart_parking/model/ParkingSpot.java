@@ -23,7 +23,7 @@ public class ParkingSpot {
     private String vehicleType; // "CAR" or "BIKE"
     private boolean isOccupied; // false = khali hai, true = book ho gaya
 
-    // Default Constructor(Imp for JPA)
+    // Default Constructor(Imp for JPA) // hidernate will installize this with the persistance data 
     public ParkingSpot() {
     }
 
